@@ -1,3 +1,4 @@
+<!-- https://github.com/pleabargain/graphing-decision-tree/tree/interactive -->
 # Agent Guide
 
 This document outlines best practices and conventions for AI agents working on the `graphing-decision-tree` repository.
