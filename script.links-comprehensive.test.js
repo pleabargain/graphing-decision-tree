@@ -152,7 +152,8 @@ describe('Comprehensive Link Tests for All Decision Tree Files', () => {
             expect(content.length).toBeGreaterThan(0);
             
             // Should contain 'name' property (indicating tree data structure)
-            expect(content).toMatch(/name\s*:/);
+            // Match both JSON format ("name":) and JavaScript object format (name:)
+            expect(content).toMatch(/["']?name["']?\s*:/);
             
             // Should contain 'children' or be a valid tree structure
             expect(content).toMatch(/children\s*:|const\s+\w+\s*=|let\s+\w+\s*=|var\s+\w+\s*=|window\.\w+\s*=/);

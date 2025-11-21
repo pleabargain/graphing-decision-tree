@@ -8,7 +8,7 @@ if (pathElement) {
 }
 
 // Set the dimensions and margins of the diagram
-const margin = { top: 20, right: 200, bottom: 30, left: 90 };
+const margin = { top: 70, right: 200, bottom: 30, left: 90 };
 let width = window.innerWidth - margin.left - margin.right;
 let height = window.innerHeight - margin.top - margin.bottom;
 
@@ -362,8 +362,35 @@ function loadTreeFile(filename, openInNewWindow) {
     }
 }
 
+// Function to update the tree title
+function updateTreeTitle(treeData, filename) {
+    const titleElement = document.getElementById('tree-title');
+    if (titleElement) {
+        let titleText = '';
+        
+        // Use the root node name if available
+        if (treeData && treeData.name) {
+            titleText = treeData.name;
+        } else if (filename) {
+            // Fallback to filename without extension
+            titleText = filename.replace('.js', '').replace(/[-_]/g, ' ');
+            // Capitalize first letter of each word
+            titleText = titleText.split(' ').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+        }
+        
+        if (titleText) {
+            titleElement.textContent = titleText;
+            titleElement.style.display = 'block';
+        } else {
+            titleElement.style.display = 'none';
+        }
+    }
+}
+
 // Function to load and render tree data
-function loadTreeData(treeData) {
+function loadTreeData(treeData, filename) {
     // Clear existing tree
     svg.selectAll("*").remove();
     i = 0;
@@ -384,6 +411,13 @@ function loadTreeData(treeData) {
             return;
         }
     }
+
+    // Update tree title - use provided filename or get from URL
+    if (!filename) {
+        const urlParams = new URLSearchParams(window.location.search);
+        filename = urlParams.get('file');
+    }
+    updateTreeTitle(data, filename);
 
     // Assigns parent, children, height, depth
     root = d3.hierarchy(data, function (d) { return d.children; });
@@ -444,7 +478,10 @@ if (fileInput) {
                     }
 
                     if (loadedData) {
-                        loadTreeData(loadedData);
+                        // Update URL to reflect loaded file
+                        const newUrl = window.location.href.split('?')[0] + '?file=' + encodeURIComponent(file.name);
+                        window.history.pushState({}, '', newUrl);
+                        loadTreeData(loadedData, file.name);
                     } else {
                         alert('Could not find tree data in the loaded file.');
                     }
@@ -711,6 +748,13 @@ window.addEventListener('resize', function() {
         treemap.size([height, width]);
         update(root);
     }
+});
+
+// Update tree title on initial load
+window.addEventListener('load', function () {
+    const urlParams = new URLSearchParams(window.location.search);
+    const fileParam = urlParams.get('file');
+    // Title will be updated when tree data is loaded
 });
 
 // Fuzzy Search Implementation

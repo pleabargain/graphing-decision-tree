@@ -100,6 +100,17 @@ The application includes a fuzzy search feature that allows you to search throug
 
 The search is debounced (300ms delay) to avoid excessive queries while typing. It handles partial matches and typos, making it easy to find files even if you're not sure of the exact filename.
 
+## Tree Title Display
+
+The application displays the name of the currently active decision tree at the top of the page. The title:
+
+- Shows the root node name from the tree data (e.g., "Food Shopping?")
+- Falls back to a formatted version of the filename if no root name is available
+- Is positioned at the top of the page and does not interfere with viewing or interacting with the decision tree
+- Updates automatically when a new tree is loaded
+
+The title bar is fixed at the top of the page and provides a clear visual indicator of which decision tree is currently being viewed.
+
 ---
 
 Last Updated: 2025-01-27
