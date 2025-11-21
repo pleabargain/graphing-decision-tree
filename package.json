@@ -1,0 +1,16 @@
+{
+  "name": "graphing-decision-tree",
+  "version": "1.0.0",
+  "description": "An interactive decision tree viewer using D3.js",
+  "main": "decision_tree.html",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "d3",
+    "decision-tree",
+    "visualization"
+  ],
+  "author": "",
+  "license": "MIT"
+}

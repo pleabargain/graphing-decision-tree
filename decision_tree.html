@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dinner Decision Tree</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #tree-container {
+            width: 100%;
+            height: 100%;
+            background: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: auto;
+        }
+
+        .node circle {
+            fill: #fff;
+            stroke: #3498db;
+            stroke-width: 3px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .node circle:hover {
+            fill: #e1f5fe;
+            r: 12;
+        }
+
+        .node text {
+            font: 14px sans-serif;
+            fill: #333;
+            text-shadow: 0 1px 0 #fff, 1px 0 0 #fff, 0 -1px 0 #fff, -1px 0 0 #fff;
+        }
+
+        .link {
+            fill: none;
+            stroke: #ccc;
+            stroke-width: 2px;
+            transition: stroke 0.3s ease;
+        }
+
+        .node--internal circle {
+            fill: #555;
+        }
+
+        .node--leaf circle {
+            fill: #999;
+        }
+
+        /* Link indicator styling */
+        .node--link circle {
+            fill: #e74c3c;
+            stroke: #c0392b;
+        }
+
+        .node--link circle:hover {
+            fill: #c0392b;
+        }
+
+        .link-icon {
+            font-size: 10px;
+            fill: white;
+            font-weight: bold;
+            pointer-events: none;
+        }
+
+        /* Tooltip styling */
+        div.tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 6px;
+            font: 12px sans-serif;
+            background: lightsteelblue;
+            border: 0px;
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div
+        style="position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <div style="margin-bottom: 5px; font-size: 12px; color: #666;">
+            Current Directory: <span id="current-path" style="font-weight: bold; color: #333;"></span>
+        </div>
+        <input type="file" id="data-file-input" accept=".js">
+    </div>
+
+    <div id="tree-container"></div>
+
+    <!-- Load the default data file -->
+    <script src="dinner_decision_data.js"></script>
+
+    <script>
+        // Display current directory path
+        const currentPath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
+        // Decode URI component to handle spaces and special chars
+        document.getElementById('current-path').textContent = decodeURIComponent(currentPath);
+
+        // Set the dimensions and margins of the diagram
+        const margin = { top: 20, right: 90, bottom: 30, left: 90 },
+            width = window.innerWidth - margin.left - margin.right,
+            height = window.innerHeight - margin.top - margin.bottom;
+
+        const svg = d3.select("#tree-container").append("svg")
+            .attr("width", width + margin.right + margin.left)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        // Initialize variables
+        let data = null;
+        let root = null;
+        let i = 0;
+        const duration = 750;
+        const treemap = d3.tree().size([height, width]);
+
+        // Function to load a decision tree file
+        function loadTreeFile(filename, openInNewWindow) {
+            if (openInNewWindow) {
+                // Open in new window/tab
+                const url = window.location.href.split('?')[0] + '?file=' + encodeURIComponent(filename);
+                window.open(url, '_blank');
+            } else {
+                // Load in same window
+                window.location.href = window.location.href.split('?')[0] + '?file=' + encodeURIComponent(filename);
+            }
+        }
+
+        // Function to load and render tree data
+        function loadTreeData(treeData) {
+            // Clear existing tree
+            svg.selectAll("*").remove();
+            i = 0;
+
+            // Use the provided data or try to find it in global scope
+            if (treeData) {
+                data = treeData;
+            } else {
+                // Try to find data from loaded scripts
+                if (typeof window.treeData !== 'undefined') {
+                    data = window.treeData;
+                } else if (typeof window.hikingData !== 'undefined') {
+                    data = window.hikingData;
+                } else if (typeof window.relocationData !== 'undefined') {
+                    data = window.relocationData;
+                } else {
+                    console.error('No tree data found');
+                    return;
+                }
+            }
+
+            // Assigns parent, children, height, depth
+            root = d3.hierarchy(data, function (d) { return d.children; });
+            root.x0 = height / 2;
+            root.y0 = 0;
+
+            // Collapse all nodes initially
+            root.children.forEach(collapse);
+
+            update(root);
+        }
+
+        // Handle file input
+        document.getElementById('data-file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file && file.name.endsWith('.js')) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const fileContent = event.target.result;
+                    
+                    // Parse the file content to find the variable name
+                    // Look for patterns like: const variableName = { or let variableName = { or var variableName = {
+                    const varMatch = fileContent.match(/(?:const|let|var)\s+(\w+)\s*=/);
+                    let expectedVarName = null;
+                    
+                    if (varMatch && varMatch[1]) {
+                        expectedVarName = varMatch[1];
+                    }
+                    
+                    // Modify the script content to ensure the variable is accessible on window
+                    // Replace const/let declarations with window assignment for the main data variable
+                    let modifiedContent = fileContent;
+                    if (expectedVarName) {
+                        // Replace the first occurrence of the variable declaration with window assignment
+                        modifiedContent = fileContent.replace(
+                            new RegExp(`(const|let|var)\\s+${expectedVarName}\\s*=`),
+                            `window.${expectedVarName} =`
+                        );
+                    }
+                    
+                    // Create a script element to execute the loaded JS
+                    const script = document.createElement('script');
+                    script.textContent = modifiedContent;
+                    
+                    // Append script to execute it synchronously
+                    document.body.appendChild(script);
+                    
+                    // Check for the variable immediately after script execution
+                    // (inline scripts execute synchronously when appended)
+                    setTimeout(function() {
+                        let loadedData = null;
+                        
+                        // First, try the expected variable name from parsing
+                        if (expectedVarName && typeof window[expectedVarName] !== 'undefined') {
+                            loadedData = window[expectedVarName];
+                        }
+                        
+                        // If not found, check for any variable ending with 'Data'
+                        if (!loadedData) {
+                            for (let key in window) {
+                                if (key.endsWith('Data') && typeof window[key] === 'object' && window[key] !== null) {
+                                    // Check if it has the expected structure (has 'name' property)
+                                    if (window[key].name) {
+                                        loadedData = window[key];
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (loadedData) {
+                            loadTreeData(loadedData);
+                        } else {
+                            alert('Could not find tree data in the loaded file. Make sure it defines a variable like "treeData" or "hikingData".');
+                        }
+                        
+                        // Remove the temporary script
+                        if (script.parentNode) {
+                            document.body.removeChild(script);
+                        }
+                    }, 10);
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // Function to load a JS file dynamically
+        function loadScript(filename, callback) {
+            // Remove any existing script with the same src to avoid duplicates
+            const existingScript = document.querySelector(`script[data-tree-file="${filename}"]`);
+            if (existingScript) {
+                existingScript.remove();
+            }
+
+            const script = document.createElement('script');
+            script.setAttribute('data-tree-file', filename);
+            script.src = filename;
+            script.onload = callback;
+            script.onerror = function() {
+                alert('Failed to load file: ' + filename);
+            };
+            document.head.appendChild(script);
+        }
+
+        // Function to convert kebab-case to camelCase
+        function toCamelCase(str) {
+            return str.replace(/[-_](.)/g, (_, char) => char.toUpperCase());
+        }
+
+        // Load default data on page load
+        window.addEventListener('load', function() {
+            // Check for file parameter in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const fileParam = urlParams.get('file');
+            
+            if (fileParam) {
+                // Load the specified file
+                loadScript(fileParam, function() {
+                    setTimeout(() => {
+                        // Try to find the data variable
+                        let loadedData = null;
+                        const baseName = fileParam.replace('.js', '');
+                        const varName = baseName.replace(/[-_]/g, '');
+                        const camelCaseName = toCamelCase(baseName);
+                        
+                        // Check common variable name patterns
+                        const possibleNames = [
+                            'treeData', 'hikingData', 'relocationData',
+                            varName + 'Data', 
+                            varName.charAt(0).toUpperCase() + varName.slice(1) + 'Data',
+                            camelCaseName + 'Data',
+                            camelCaseName.charAt(0).toUpperCase() + camelCaseName.slice(1) + 'Data'
+                        ];
+                        
+                        for (let name of possibleNames) {
+                            if (typeof window[name] !== 'undefined') {
+                                loadedData = window[name];
+                                break;
+                            }
+                        }
+                        
+                        // Fallback: search for any variable ending with 'Data'
+                        if (!loadedData) {
+                            for (let key in window) {
+                                if (key.endsWith('Data') && typeof window[key] === 'object' && window[key] !== null) {
+                                    if (window[key].name) {
+                                        loadedData = window[key];
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (loadedData) {
+                            loadTreeData(loadedData);
+                        } else {
+                            alert('Could not find tree data in ' + fileParam);
+                            // Fall back to default
+                            if (typeof treeData !== 'undefined') {
+                                loadTreeData(treeData);
+                            }
+                        }
+                    }, 100);
+                });
+            } else {
+                // Load default data
+                setTimeout(() => {
+                    if (typeof treeData !== 'undefined') {
+                        loadTreeData(treeData);
+                    } else if (typeof hikingData !== 'undefined') {
+                        loadTreeData(hikingData);
+                    } else {
+                        console.error('No default tree data found. Please load a .js file.');
+                    }
+                }, 100);
+            }
+        });
+
+        function collapse(d) {
+            if (d.children) {
+                d._children = d.children
+                d._children.forEach(collapse)
+                d.children = null
+            }
+        }
+
+        function update(source) {
+
+            // Assigns the x and y position for the nodes
+            const treeData = treemap(root);
+
+            // Compute the new tree layout.
+            const nodes = treeData.descendants(),
+                links = treeData.descendants().slice(1);
+
+            // Normalize for fixed-depth.
+            nodes.forEach(function (d) { d.y = d.depth * 180 });
+
+            // ****************** Nodes section ******************
+
+            // Update the nodes...
+            const node = svg.selectAll('g.node')
+                .data(nodes, function (d) { return d.id || (d.id = ++i); });
+
+            // Enter any new modes at the parent's previous position.
+            const nodeEnter = node.enter().append('g')
+                .attr('class', 'node')
+                .attr("transform", function (d) {
+                    return "translate(" + source.y0 + "," + source.x0 + ")";
+                })
+                .on('click', click);
+
+            // Add Circle for the nodes
+            nodeEnter.append('circle')
+                .attr('class', function(d) {
+                    let classes = 'node';
+                    if (d.data.link) {
+                        classes += ' node--link';
+                    }
+                    return classes;
+                })
+                .attr('r', 1e-6)
+                .style("fill", function (d) {
+                    if (d.data.link) {
+                        return "#e74c3c";
+                    }
+                    return d._children ? "lightsteelblue" : "#fff";
+                })
+                .style("stroke", function (d) {
+                    if (d.data.link) {
+                        return "#c0392b";
+                    }
+                    return "#3498db";
+                });
+
+            // Add link icon for nodes with links
+            nodeEnter.append('text')
+                .attr('class', 'link-icon')
+                .attr("dy", ".35em")
+                .attr("x", 0)
+                .attr("text-anchor", "middle")
+                .style("opacity", function(d) {
+                    return d.data.link ? 1 : 0;
+                })
+                .text(function(d) {
+                    return d.data.link ? "🔗" : "";
+                });
+
+            // Add labels for the nodes
+            nodeEnter.append('text')
+                .attr("dy", ".35em")
+                .attr("x", function (d) {
+                    return d.children || d._children ? -13 : 13;
+                })
+                .attr("text-anchor", function (d) {
+                    return d.children || d._children ? "end" : "start";
+                })
+                .text(function (d) { return d.data.name; });
+
+            // UPDATE
+            const nodeUpdate = node.merge(nodeEnter);
+
+            // Transition to the proper position for the node
+            nodeUpdate.transition()
+                .duration(duration)
+                .attr("transform", function (d) {
+                    return "translate(" + d.y + "," + d.x + ")";
+                });
+
+            // Update the node attributes and style
+            nodeUpdate.select('circle.node')
+                .attr('r', 10)
+                .style("fill", function (d) {
+                    if (d.data.link) {
+                        return "#e74c3c";
+                    }
+                    return d._children ? "lightsteelblue" : "#fff";
+                })
+                .style("stroke", function (d) {
+                    if (d.data.link) {
+                        return "#c0392b";
+                    }
+                    return "#3498db";
+                })
+                .attr('cursor', 'pointer');
+
+
+            // Remove any exiting nodes
+            const nodeExit = node.exit().transition()
+                .duration(duration)
+                .attr("transform", function (d) {
+                    return "translate(" + source.y + "," + source.x + ")";
+                })
+                .remove();
+
+            // On exit reduce the node circles size to 0
+            nodeExit.select('circle')
+                .attr('r', 1e-6);
+
+            // On exit reduce the opacity of text labels
+            nodeExit.select('text')
+                .style('fill-opacity', 1e-6);
+
+            // ****************** Links section ******************
+
+            // Update the links...
+            const link = svg.selectAll('path.link')
+                .data(links, function (d) { return d.id; });
+
+            // Enter any new links at the parent's previous position.
+            const linkEnter = link.enter().insert('path', "g")
+                .attr("class", "link")
+                .attr('d', function (d) {
+                    const o = { x: source.x0, y: source.y0 }
+                    return diagonal(o, o)
+                });
+
+            // UPDATE
+            const linkUpdate = link.merge(linkEnter);
+
+            // Transition back to the parent element position
+            linkUpdate.transition()
+                .duration(duration)
+                .attr('d', function (d) { return diagonal(d, d.parent) });
+
+            // Remove any exiting links
+            const linkExit = link.exit().transition()
+                .duration(duration)
+                .attr('d', function (d) {
+                    const o = { x: source.x, y: source.y }
+                    return diagonal(o, o)
+                })
+                .remove();
+
+            // Store the old positions for transition.
+            nodes.forEach(function (d) {
+                d.x0 = d.x;
+                d.y0 = d.y;
+            });
+
+            // Creates a curved (diagonal) path from parent to the child nodes
+            function diagonal(s, d) {
+
+                path = `M ${s.y} ${s.x}
+                    C ${(s.y + d.y) / 2} ${s.x},
+                      ${(s.y + d.y) / 2} ${d.x},
+                      ${d.y} ${d.x}`
+
+                return path
+            }
+
+            // Toggle children on click.
+            function click(event, d) {
+                // Check if node has a link
+                if (d.data.link) {
+                    event.stopPropagation();
+                    const linkData = d.data.link;
+                    const filename = typeof linkData === 'string' ? linkData : linkData.file;
+                    const openInNewWindow = typeof linkData === 'object' && linkData.newWindow === true;
+                    loadTreeFile(filename, openInNewWindow);
+                    return;
+                }
+                
+                // Normal expand/collapse behavior
+                if (d.children) {
+                    d._children = d.children;
+                    d.children = null;
+                } else {
+                    d.children = d._children;
+                    d._children = null;
+                }
+                update(d);
+            }
+        }
+    </script>
+</body>
+
+</html>
