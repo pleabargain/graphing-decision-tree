@@ -77,3 +77,6 @@ const hikingData = {
         }
     ]
 };
+
+// Expose to window for script loading
+window.hikingData = hikingData;
