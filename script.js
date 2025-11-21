@@ -713,8 +713,199 @@ window.addEventListener('resize', function() {
     }
 });
 
+// Fuzzy Search Implementation
+function levenshteinDistance(str1, str2) {
+    const m = str1.length;
+    const n = str2.length;
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (str1[i - 1] === str2[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1];
+            } else {
+                dp[i][j] = Math.min(
+                    dp[i - 1][j] + 1,     // deletion
+                    dp[i][j - 1] + 1,     // insertion
+                    dp[i - 1][j - 1] + 1  // substitution
+                );
+            }
+        }
+    }
+
+    return dp[m][n];
+}
+
+function calculateSimilarity(str1, str2) {
+    const maxLen = Math.max(str1.length, str2.length);
+    if (maxLen === 0) return 1.0;
+    const distance = levenshteinDistance(str1.toLowerCase(), str2.toLowerCase());
+    return 1 - (distance / maxLen);
+}
+
+function fuzzySearch(query, items, threshold = 0.3) {
+    if (!query || query.trim().length === 0) {
+        return items.map(item => ({ item, score: 1.0 }));
+    }
+
+    const queryLower = query.toLowerCase().trim();
+    const results = [];
+
+    items.forEach(item => {
+        let maxScore = 0;
+        
+        // Check filename match
+        const filename = item.filename || item;
+        const filenameLower = filename.toLowerCase();
+        
+        // Exact match gets highest score
+        if (filenameLower.includes(queryLower)) {
+            maxScore = Math.max(maxScore, 0.9);
+        }
+        
+        // Check each word in filename
+        const filenameWords = filenameLower.split(/[-_.]/);
+        filenameWords.forEach(word => {
+            if (word.includes(queryLower)) {
+                maxScore = Math.max(maxScore, 0.8);
+            }
+            const similarity = calculateSimilarity(queryLower, word);
+            if (similarity > threshold) {
+                maxScore = Math.max(maxScore, similarity);
+            }
+        });
+
+        // Check content snippets if available
+        if (item.snippets) {
+            item.snippets.forEach(snippet => {
+                const snippetLower = snippet.toLowerCase();
+                if (snippetLower.includes(queryLower)) {
+                    maxScore = Math.max(maxScore, 0.7);
+                }
+                // Check individual words in snippet
+                snippetLower.split(' ').forEach(word => {
+                    const similarity = calculateSimilarity(queryLower, word);
+                    if (similarity > threshold) {
+                        maxScore = Math.max(maxScore, similarity * 0.6);
+                    }
+                });
+            });
+        }
+
+        if (maxScore > threshold) {
+            results.push({ item, score: maxScore });
+        }
+    });
+
+    // Sort by score descending
+    results.sort((a, b) => b.score - a.score);
+    return results;
+}
+
+// Search functionality
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+let searchTimeout = null;
+let allFiles = [];
+
+// Load all files on page load
+async function loadAllFiles() {
+    try {
+        const response = await fetch('/api/search-files');
+        const data = await response.json();
+        allFiles = data.files || [];
+    } catch (error) {
+        console.error('Error loading files:', error);
+    }
+}
+
+// Perform search
+async function performSearch(query) {
+    if (!query || query.trim().length === 0) {
+        searchResults.style.display = 'none';
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/search-files?q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        const files = data.files || [];
+
+        // Apply fuzzy search
+        const fuzzyResults = fuzzySearch(query, files, 0.2);
+
+        if (fuzzyResults.length === 0) {
+            searchResults.innerHTML = '<div style="padding: 10px; color: #666; font-size: 0.9em;">No matches found</div>';
+            searchResults.style.display = 'block';
+            return;
+        }
+
+        // Display results
+        searchResults.innerHTML = fuzzyResults.map(({ item, score }) => {
+            const filename = item.filename || item;
+            const scorePercent = Math.round(score * 100);
+            const matchType = item.filenameMatch ? 'filename' : 'content';
+            return `
+                <div class="search-result-item" data-filename="${filename}" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-weight: bold; color: #3498db;">${filename}</div>
+                        ${item.snippets && item.snippets.length > 0 ? 
+                            `<div style="font-size: 0.8em; color: #666; margin-top: 2px;">${item.snippets[0].substring(0, 50)}...</div>` : 
+                            ''}
+                    </div>
+                    <div style="font-size: 0.75em; color: #999;">${scorePercent}%</div>
+                </div>
+            `;
+        }).join('');
+
+        // Add click handlers
+        searchResults.querySelectorAll('.search-result-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const filename = this.getAttribute('data-filename');
+                loadTreeFile(filename, false);
+            });
+            item.addEventListener('mouseenter', function() {
+                this.style.backgroundColor = '#f5f5f5';
+            });
+            item.addEventListener('mouseleave', function() {
+                this.style.backgroundColor = 'white';
+            });
+        });
+
+        searchResults.style.display = 'block';
+    } catch (error) {
+        console.error('Error performing search:', error);
+        searchResults.innerHTML = '<div style="padding: 10px; color: #e74c3c;">Error searching files</div>';
+        searchResults.style.display = 'block';
+    }
+}
+
+// Search input event listener
+if (searchInput) {
+    searchInput.addEventListener('input', function(e) {
+        const query = e.target.value;
+        
+        // Debounce search
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            performSearch(query);
+        }, 300);
+    });
+
+    // Close results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.style.display = 'none';
+        }
+    });
+}
+
 // Load default data on page load
 window.addEventListener('load', function () {
+    loadAllFiles();
     const urlParams = new URLSearchParams(window.location.search);
     const fileParam = urlParams.get('file');
 

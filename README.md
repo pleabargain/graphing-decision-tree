@@ -79,6 +79,27 @@ decision_tree.html?file=hiking_decision_data.js
 
 This is useful for bookmarking specific decision trees or sharing direct links.
 
+## Search Feature
+
+The application includes a fuzzy search feature that allows you to search through all `.js` decision tree files. The search functionality:
+
+- **Fuzzy Matching**: Uses Levenshtein distance algorithm to find matches even with misspellings
+- **Searches Both**: Searches both filenames and file contents
+- **Real-time Results**: Shows matching files with relevance scores and content snippets
+- **Quick Access**: Click on any search result to load that decision tree file
+
+### How to Use Search
+
+1. Look for the "🔍 Search Files" input field in the control panel (top left)
+2. Type your search query (e.g., "food", "shopping", "location")
+3. Results appear below the search box showing:
+   - Filename
+   - Match score percentage
+   - Content snippets (if found in file contents)
+4. Click on any result to load that decision tree file
+
+The search is debounced (300ms delay) to avoid excessive queries while typing. It handles partial matches and typos, making it easy to find files even if you're not sure of the exact filename.
+
 ---
 
-Last Updated: 2025-11-20
+Last Updated: 2025-01-27

@@ -57,6 +57,74 @@ app.post('/api/save', (req, res) => {
     });
 });
 
+// Endpoint to list and search .js files
+app.get('/api/search-files', (req, res) => {
+    const searchQuery = req.query.q || '';
+    const searchTerm = searchQuery.toLowerCase().trim();
+
+    try {
+        const files = fs.readdirSync(__dirname);
+        const jsFiles = files.filter(file => file.endsWith('.js') && 
+            !file.includes('.test.js') && 
+            file !== 'server.js' && 
+            file !== 'script.js');
+
+        if (!searchTerm) {
+            return res.json({ files: jsFiles });
+        }
+
+        // Read file contents and search
+        const results = [];
+        jsFiles.forEach(filename => {
+            try {
+                const filePath = path.join(__dirname, filename);
+                const content = fs.readFileSync(filePath, 'utf8');
+                
+                // Extract text content (remove JS syntax, keep strings and comments)
+                const textContent = content
+                    .replace(/\/\*[\s\S]*?\*\//g, ' ') // Remove block comments
+                    .replace(/\/\/.*/g, ' ') // Remove line comments
+                    .replace(/['"]/g, ' ') // Remove quotes
+                    .replace(/[{}[\]();,=]/g, ' ') // Remove JS syntax
+                    .replace(/\s+/g, ' ') // Normalize whitespace
+                    .toLowerCase();
+
+                // Check if search term appears in filename or content
+                const filenameMatch = filename.toLowerCase().includes(searchTerm);
+                const contentMatch = textContent.includes(searchTerm);
+
+                if (filenameMatch || contentMatch) {
+                    // Extract matching snippets
+                    const snippets = [];
+                    const words = textContent.split(' ');
+                    words.forEach((word, index) => {
+                        if (word.includes(searchTerm)) {
+                            const start = Math.max(0, index - 2);
+                            const end = Math.min(words.length, index + 3);
+                            snippets.push(words.slice(start, end).join(' '));
+                        }
+                    });
+
+                    results.push({
+                        filename: filename,
+                        filenameMatch: filenameMatch,
+                        contentMatch: contentMatch,
+                        snippets: snippets.slice(0, 3) // Limit to 3 snippets
+                    });
+                }
+            } catch (err) {
+                console.error(`Error reading file ${filename}:`, err);
+            }
+        });
+
+        res.json({ files: results });
+    } catch (error) {
+        console.error('Error searching files:', error);
+        log(`Error searching files: ${error.message}`);
+        res.status(500).json({ error: 'Failed to search files' });
+    }
+});
+
 // Endpoint to proxy requests to Ollama
 app.post('/api/generate', async (req, res) => {
     const { prompt, model = 'gemma3:4b' } = req.body;

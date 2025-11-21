@@ -31,6 +31,11 @@
         <div style="margin-top: 10px;">
             <input type="file" id="data-file-input" accept=".js">
         </div>
+        <div style="margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px;">
+            <label for="search-input" style="font-size: 0.9em; font-weight: bold; display: block; margin-bottom: 5px;">🔍 Search Files</label>
+            <input type="text" id="search-input" placeholder="Search .js files...">
+            <div id="search-results" style="display: none; margin-top: 5px; max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; background: white;"></div>
+        </div>
     </div>
 
     <div id="tree-container"></div>
