@@ -15,21 +15,25 @@
 
 <body>
 
-    <div id="tree-title"></div>
+    <div id="tree-title">
+        <div id="title-text"></div>
+        <div id="title-controls">
+            <div class="control-group">
+                <label for="edit-mode-toggle">Edit Mode</label>
+                <input type="checkbox" id="edit-mode-toggle">
+            </div>
+            <div id="edit-controls">
+                <input type="text" id="save-filename" placeholder="filename.js" value="my-tree.js">
+                <div class="control-group">
+                    <button id="save-btn">💾 Save Tree</button>
+                    <button id="new-tree-btn">✨ New Tree</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div id="control-panel">
         <div id="current-path"></div>
-        <div class="control-group">
-            <label for="edit-mode-toggle">Edit Mode</label>
-            <input type="checkbox" id="edit-mode-toggle">
-        </div>
-        <div id="edit-controls">
-            <input type="text" id="save-filename" placeholder="filename.js" value="my-tree.js">
-            <div class="control-group">
-                <button id="save-btn">💾 Save Tree</button>
-                <button id="new-tree-btn">✨ New Tree</button>
-            </div>
-        </div>
         <div style="margin-top: 10px;">
             <input type="file" id="data-file-input" accept=".js">
         </div>

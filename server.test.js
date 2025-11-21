@@ -361,4 +361,80 @@ describe('API Endpoints', () => {
             fs.writeFile = originalWriteFile;
         });
     });
+
+    describe('GET /api/search-files', () => {
+        it('should return all files when no query is provided', async () => {
+            const res = await request(app)
+                .get('/api/search-files')
+                .expect(200);
+
+            expect(res.statusCode).toBe(200);
+            expect(res.body).toHaveProperty('files');
+            expect(Array.isArray(res.body.files)).toBe(true);
+        });
+
+        it('should search for files containing "phone" in filename or content', async () => {
+            const res = await request(app)
+                .get('/api/search-files?q=phone')
+                .expect(200);
+
+            expect(res.statusCode).toBe(200);
+            expect(res.body).toHaveProperty('files');
+            expect(Array.isArray(res.body.files)).toBe(true);
+            
+            // Check if buy-phone.js is in results (should be)
+            const phoneFiles = res.body.files.filter(file => 
+                file.filename && file.filename.toLowerCase().includes('phone')
+            );
+            
+            // Log results for debugging
+            console.log('\nSearch results for "phone":');
+            res.body.files.forEach(file => {
+                console.log(`  - ${file.filename} (filenameMatch: ${file.filenameMatch}, contentMatch: ${file.contentMatch})`);
+            });
+            
+            // Should find buy-phone.js at minimum
+            expect(phoneFiles.length).toBeGreaterThan(0);
+        });
+
+        it('should return empty array when no matches found', async () => {
+            const res = await request(app)
+                .get('/api/search-files?q=xyz123nonexistent456')
+                .expect(200);
+
+            expect(res.statusCode).toBe(200);
+            expect(res.body).toHaveProperty('files');
+            expect(Array.isArray(res.body.files)).toBe(true);
+            expect(res.body.files.length).toBe(0);
+        });
+
+        it('should include filenameMatch and contentMatch flags', async () => {
+            const res = await request(app)
+                .get('/api/search-files?q=phone')
+                .expect(200);
+
+            if (res.body.files.length > 0) {
+                const firstResult = res.body.files[0];
+                expect(firstResult).toHaveProperty('filename');
+                expect(firstResult).toHaveProperty('filenameMatch');
+                expect(firstResult).toHaveProperty('contentMatch');
+                expect(typeof firstResult.filenameMatch).toBe('boolean');
+                expect(typeof firstResult.contentMatch).toBe('boolean');
+            }
+        });
+
+        it('should include snippets when content matches', async () => {
+            const res = await request(app)
+                .get('/api/search-files?q=phone')
+                .expect(200);
+
+            // Find a result with content match
+            const contentMatchResult = res.body.files.find(file => file.contentMatch);
+            
+            if (contentMatchResult) {
+                expect(contentMatchResult).toHaveProperty('snippets');
+                expect(Array.isArray(contentMatchResult.snippets)).toBe(true);
+            }
+        });
+    });
 });

@@ -1,15 +1,46 @@
 <!-- https://github.com/pleabargain/graphing-decision-tree/tree/interactive -->
 # Graphical Decision Tree
 
-This project implements an interactive decision tree using D3.js. It allows you to load different decision scenarios dynamically.
+## Project Goal
+
+This project provides an **interactive, visual decision tree viewer and editor** built with D3.js. The goal is to help users:
+
+- **Visualize complex decision-making processes** as interactive, navigable tree structures
+- **Navigate through decision paths** by clicking nodes to expand/collapse branches
+- **Create and edit decision trees** with an intuitive visual interface
+- **Link related decision trees** together to build comprehensive decision-making workflows
+- **Search and discover** decision trees using fuzzy search capabilities
+
+Whether you're planning a weekend activity, making a purchase decision, or mapping out any multi-step decision process, this tool helps you visualize all possible paths and outcomes in an interactive, easy-to-navigate format.
+
+## Features
+
+- **Interactive Visualization**: Click nodes to expand/collapse branches and explore decision paths
+- **Visual Editor**: Edit mode allows you to add, edit, delete, and generate nodes with AI assistance
+- **Tree Linking**: Connect related decision trees together for complex workflows
+- **File Search**: Fuzzy search to quickly find decision trees by filename or content
+- **Persistent Editing**: Changes are automatically saved to files
+- **Fixed UI**: Edit controls and navigation stay visible while scrolling
 
 ## How to Use
 
-1.  Open `decision_tree.html` in your web browser.
-2.  You will see a "Choose File" button at the top left.
-3.  Select a `.js` data file (e.g., `dinner_decision_data.js` or `hiking_decision_data.js`).
-4.  The decision tree will render automatically.
-5.  Click on nodes to expand or collapse branches.
+### Viewing Decision Trees
+
+1.  Start the server: `node server.js` (or open `decision_tree.html` directly in a browser)
+2.  Use the search feature or file input to load a decision tree file
+3.  Click on nodes to expand or collapse branches and explore decision paths
+4.  Click nodes with link icons (🔗) to navigate to related decision trees
+
+### Editing Decision Trees
+
+1.  Toggle **Edit Mode** in the title bar at the top of the page
+2.  Right-click any node to access the context menu with editing options:
+   - **➕ Add Child**: Add a new child node
+   - **✏️ Edit Text**: Change the node's text
+   - **🤖 Generate Children (AI)**: Use AI to suggest child nodes
+   - **🗑️ Delete Node**: Remove a node and its children
+3.  Enter a filename in the save field and click **💾 Save Tree** to save your changes
+4.  Click **✨ New Tree** to create a fresh decision tree
 
 ## Data Files
 
@@ -111,6 +142,27 @@ The application displays the name of the currently active decision tree at the t
 
 The title bar is fixed at the top of the page and provides a clear visual indicator of which decision tree is currently being viewed.
 
+## Edit Mode
+
+When Edit Mode is enabled, the editing tools appear in the title bar at the top of the page. This ensures the editing controls are always visible, even when scrolling through large decision trees. The edit controls include:
+
+- **Edit Mode Toggle**: Enable/disable editing functionality
+- **Filename Input**: Specify the filename for saving
+- **Save Tree Button**: Save the current tree to a file
+- **New Tree Button**: Create a new empty decision tree
+
+All editing controls remain fixed and visible at the top of the page, making it easy to edit trees of any size.
+
+## Running the Server
+
+For full functionality (file saving, search, AI generation), run the Node.js server:
+
+```bash
+node server.js
+```
+
+Then open `http://localhost:3000` in your browser.
+
 ---
 
-Last Updated: 2025-01-27
+Last Updated: 2025-11-21T14:47:34

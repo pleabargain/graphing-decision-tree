@@ -9,13 +9,16 @@ if (pathElement) {
 
 // Set the dimensions and margins of the diagram
 const margin = { top: 70, right: 200, bottom: 30, left: 90 };
-let width = window.innerWidth - margin.left - margin.right;
-let height = window.innerHeight - margin.top - margin.bottom;
+// Use a large initial size to allow for infinite expansion
+let baseWidth = Math.max(window.innerWidth - margin.left - margin.right, 2000);
+let baseHeight = Math.max(window.innerHeight - margin.top - margin.bottom, 2000);
 
 // Store reference to the SVG element
 const svgElement = d3.select("#tree-container").append("svg")
-    .attr("width", width + margin.right + margin.left)
-    .attr("height", height + margin.top + margin.bottom);
+    .attr("width", baseWidth + margin.right + margin.left)
+    .attr("height", baseHeight + margin.top + margin.bottom)
+    .style("min-width", "100%")
+    .style("min-height", "100vh");
 
 const svg = svgElement.append("g")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
@@ -25,7 +28,8 @@ let data = null;
 let root = null;
 let i = 0;
 const duration = 750;
-let treemap = d3.tree().size([height, width]);
+// Use large initial size - will be recalculated based on actual tree content
+let treemap = d3.tree().size([baseHeight, baseWidth]);
 
 // --- Interactive Mode Logic ---
 window.isEditMode = false;
@@ -36,10 +40,7 @@ const editToggle = document.getElementById('edit-mode-toggle');
 if (editToggle) {
     editToggle.addEventListener('change', function (e) {
         window.isEditMode = e.target.checked;
-        const editControls = document.getElementById('edit-controls');
-        if (editControls) {
-            editControls.style.display = window.isEditMode ? 'flex' : 'none';
-        }
+        // Edit controls visibility is now handled by CSS (body.edit-mode #title-controls #edit-controls)
 
         // Visual feedback
         if (window.isEditMode) {
@@ -80,7 +81,7 @@ document.addEventListener('click', function (e) {
 // Add Child
 const menuAddChild = document.getElementById('menu-add-child');
 if (menuAddChild) {
-    menuAddChild.addEventListener('click', function () {
+    menuAddChild.addEventListener('click', async function () {
         if (selectedNode) {
             const newChild = { name: "New Node", children: [] };
             if (!selectedNode.data.children) {
@@ -95,6 +96,10 @@ if (menuAddChild) {
             }
 
             update(root);
+            
+            // Auto-save after adding child
+            await autoSaveTree();
+            
             hideContextMenu();
         }
     });
@@ -104,6 +109,50 @@ if (menuAddChild) {
 function refreshUI() {
     if (root) {
         update(root);
+    }
+}
+
+// Helper function to clean tree data for saving
+function cleanData(node) {
+    const clean = { name: node.name };
+    if (node.children && node.children.length > 0) {
+        clean.children = node.children.map(cleanData);
+    }
+    if (node.link) {
+        clean.link = node.link;
+    }
+    return clean;
+}
+
+// Auto-save function to save tree data to file
+async function autoSaveTree() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const fileParam = urlParams.get('file');
+    
+    if (!fileParam) {
+        return; // No file to save to
+    }
+    
+    try {
+        const treeDataToSave = cleanData(root.data);
+        
+        const response = await fetch('/api/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: fileParam,
+                treeData: treeDataToSave
+            })
+        });
+
+        const result = await response.json();
+        if (!result.success) {
+            console.warn("Auto-save failed:", result.error);
+        } else {
+            console.log('[DEBUG] Auto-save successful for', fileParam);
+        }
+    } catch (error) {
+        console.error("Auto-save error:", error);
     }
 }
 
@@ -120,41 +169,7 @@ if (menuEditNode) {
                 refreshUI();
                 
                 // Auto-save to file if we have a current filename
-                const urlParams = new URLSearchParams(window.location.search);
-                const fileParam = urlParams.get('file');
-                if (fileParam) {
-                    try {
-                        // Get current tree data
-                        function cleanData(node) {
-                            const clean = { name: node.name };
-                            if (node.children && node.children.length > 0) {
-                                clean.children = node.children.map(cleanData);
-                            }
-                            if (node.link) {
-                                clean.link = node.link;
-                            }
-                            return clean;
-                        }
-
-                        const treeDataToSave = cleanData(root.data);
-                        
-                        const response = await fetch('/api/save', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                filename: fileParam,
-                                treeData: treeDataToSave
-                            })
-                        });
-
-                        const result = await response.json();
-                        if (!result.success) {
-                            console.warn("Auto-save failed:", result.error);
-                        }
-                    } catch (error) {
-                        console.error("Auto-save error:", error);
-                    }
-                }
+                await autoSaveTree();
             }
             hideContextMenu();
         }
@@ -164,7 +179,7 @@ if (menuEditNode) {
 // Delete Node
 const menuDeleteNode = document.getElementById('menu-delete-node');
 if (menuDeleteNode) {
-    menuDeleteNode.addEventListener('click', function () {
+    menuDeleteNode.addEventListener('click', async function () {
         if (selectedNode && selectedNode.parent) {
             if (confirm(`Delete "${selectedNode.data.name}" and its children ? `)) {
                 const siblings = selectedNode.parent.data.children;
@@ -172,6 +187,9 @@ if (menuDeleteNode) {
                 if (index > -1) {
                     siblings.splice(index, 1);
                     update(root);
+                    
+                    // Auto-save after deleting node
+                    await autoSaveTree();
                 }
             }
             hideContextMenu();
@@ -180,6 +198,137 @@ if (menuDeleteNode) {
             hideContextMenu();
         }
     });
+}
+
+// Generate Children (AI) - Helper Functions
+
+/**
+ * Gets the path from root to the given node
+ * @param {Object} node - The D3 hierarchy node
+ * @returns {Array} Array of node names from root to current node
+ */
+function getNodePath(node) {
+    let path = [];
+    let current = node;
+    while (current) {
+        path.unshift(current.data.name);
+        current = current.parent;
+    }
+    return path;
+}
+
+/**
+ * Gets all branches (sibling nodes) for the given node
+ * @param {Object} node - The D3 hierarchy node
+ * @returns {Array} Array of sibling node names
+ */
+function getNodeBranches(node) {
+    if (!node.parent || !node.parent.data.children) {
+        return [];
+    }
+    return node.parent.data.children.map(child => child.name);
+}
+
+/**
+ * Formats the prompt to send to Ollama
+ * @param {string} pathString - The path string from root to current node
+ * @param {Array} branches - Array of sibling node names
+ * @returns {string} Formatted prompt string
+ */
+function formatPromptForOllama(pathString, branches) {
+    const branchesText = branches.length > 0 
+        ? ` Existing branches at this level: ${branches.join(", ")}.`
+        : "";
+    return `Given the decision tree path: "${pathString}",${branchesText} suggest 2 to 3 logical next distinct options or steps. Return ONLY a JSON array of strings, e.g., ["Option A", "Option B"]. Do not include any other text.`;
+}
+
+/**
+ * Parses the response from Ollama API
+ * @param {Object} data - Response data from Ollama
+ * @returns {Array|null} Parsed array of options or null if parsing fails
+ */
+function parseOllamaResponse(data) {
+    console.log('[DEBUG] Parsing Ollama response:', data);
+    
+    if (!data || !data.response) {
+        console.error('[DEBUG] Invalid response data:', data);
+        return null;
+    }
+
+    let jsonStr = data.response;
+    console.log('[DEBUG] Raw response string:', jsonStr);
+    
+    const start = jsonStr.indexOf('[');
+    const end = jsonStr.lastIndexOf(']');
+    
+    console.log('[DEBUG] JSON array boundaries - start:', start, 'end:', end);
+
+    if (start !== -1 && end !== -1) {
+        jsonStr = jsonStr.substring(start, end + 1);
+        console.log('[DEBUG] Extracted JSON string:', jsonStr);
+        
+        try {
+            const options = JSON.parse(jsonStr);
+            console.log('[DEBUG] Parsed options:', options);
+            
+            if (Array.isArray(options)) {
+                return options;
+            } else {
+                console.error('[DEBUG] Parsed result is not an array:', options);
+                return null;
+            }
+        } catch (parseError) {
+            console.error('[DEBUG] JSON parse error:', parseError);
+            return null;
+        }
+    } else {
+        console.error('[DEBUG] Could not find JSON array boundaries in response');
+        return null;
+    }
+}
+
+/**
+ * Adds children nodes to the given node
+ * @param {Object} nodeRef - The D3 hierarchy node reference
+ * @param {Array} childrenNames - Array of child node names to add
+ */
+function addChildrenToNode(nodeRef, childrenNames) {
+    console.log('[DEBUG] Adding children to node:', nodeRef.data.name);
+    console.log('[DEBUG] Children to add:', childrenNames);
+    
+    if (!nodeRef.data.children) {
+        nodeRef.data.children = [];
+    }
+    
+    childrenNames.forEach(opt => {
+        nodeRef.data.children.push({ name: opt, children: [] });
+    });
+    
+    console.log('[DEBUG] Node now has', nodeRef.data.children.length, 'children');
+
+    // Expand the node to show new children
+    if (nodeRef._children) {
+        nodeRef.children = nodeRef._children;
+        nodeRef._children = null;
+    }
+}
+
+/**
+ * Gets root node information for debugging
+ * @param {Object} rootNode - The root D3 hierarchy node
+ * @returns {Object} Root node information
+ */
+function getRootNodeInfo(rootNode) {
+    if (!rootNode) {
+        return { name: 'N/A', depth: 0, totalNodes: 0 };
+    }
+    
+    const descendants = rootNode.descendants ? rootNode.descendants() : [];
+    return {
+        name: rootNode.data ? rootNode.data.name : 'N/A',
+        depth: rootNode.depth || 0,
+        totalNodes: descendants.length
+    };
 }
 
 // Generate Children (AI)
@@ -199,92 +348,104 @@ document.body.appendChild(spinner);
 if (menuGenerateAI) {
     menuGenerateAI.addEventListener('click', async function () {
         if (selectedNode) {
+            console.log('[DEBUG] ========== Generate Children Clicked ==========');
+            
             // Fix: Save reference to selectedNode before hideContextMenu() clears it
             const nodeRef = selectedNode;
             const nodeName = nodeRef.data.name;
+            
+            // Get root node info for debugging
+            const rootInfo = getRootNodeInfo(root);
+            console.log('[DEBUG] Root node info:', rootInfo);
+            console.log('[DEBUG] Root node name:', rootInfo.name);
+            console.log('[DEBUG] Root node total descendants:', rootInfo.totalNodes);
 
             // Construct path context
-            let path = [];
-            let current = nodeRef;
-            while (current) {
-                path.unshift(current.data.name);
-                current = current.parent;
-            }
+            const path = getNodePath(nodeRef);
             const pathString = path.join(" > ");
+            console.log('[DEBUG] Node path array:', path);
+            console.log('[DEBUG] Node path string:', pathString);
+            
+            // Get branches (sibling nodes) for context
+            const branches = getNodeBranches(nodeRef);
+            console.log('[DEBUG] Existing branches at this level:', branches);
+
+            // Format prompt
+            const prompt = formatPromptForOllama(pathString, branches);
+            console.log('[DEBUG] Formatted prompt to send to Ollama:', prompt);
+            
+            // Prepare request body
+            const requestBody = { prompt: prompt };
+            console.log('[DEBUG] Request body being sent to /api/generate:', JSON.stringify(requestBody, null, 2));
 
             // Show loading state
             spinner.style.display = 'block';
-            const originalText = nodeRef.data.name;
-            // nodeRef.data.name = originalText + " (Generating...)"; // Optional: keep text update
-            // update(root);
             hideContextMenu(); // This sets selectedNode = null, but we have nodeRef
 
             try {
+                console.log('[DEBUG] Sending request to /api/generate...');
                 const response = await fetch('/api/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt: `Given the decision tree path: "${pathString}", suggest 2 to 3 logical next distinct options or steps.Return ONLY a JSON array of strings, e.g., ["Option A", "Option B"].Do not include any other text.`
-                    })
+                    body: JSON.stringify(requestBody)
                 });
+
+                console.log('[DEBUG] Response status:', response.status, response.statusText);
 
                 // Check if response is ok
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                    console.error('[DEBUG] Response not OK. Error data:', errorData);
                     throw new Error(errorData.error || `Server error: ${response.status}`);
                 }
 
                 const data = await response.json();
+                console.log('[DEBUG] Received response data:', data);
                 
                 // Check if data is null or undefined
                 if (!data) {
+                    console.error('[DEBUG] Response data is null or undefined');
                     throw new Error('Received null or undefined response from server');
                 }
 
                 // Check if this is an error response
                 if (data.error) {
+                    console.error('[DEBUG] Error in response:', data.error, data.details);
                     throw new Error(data.error + (data.details ? ': ' + data.details : ''));
                 }
 
                 // Check if response property exists
                 if (!data.response) {
+                    console.error('[DEBUG] Response does not contain "response" field. Data keys:', Object.keys(data));
                     throw new Error('Response does not contain expected "response" field');
                 }
 
-                let jsonStr = data.response;
-                const start = jsonStr.indexOf('[');
-                const end = jsonStr.lastIndexOf(']');
+                // Parse the response
+                const options = parseOllamaResponse(data);
 
-                if (start !== -1 && end !== -1) {
-                    jsonStr = jsonStr.substring(start, end + 1);
-                    const options = JSON.parse(jsonStr);
-
-                    if (Array.isArray(options)) {
-                        // Fix: Use nodeRef instead of selectedNode (which is now null)
-                        if (!nodeRef.data.children) nodeRef.data.children = [];
-                        options.forEach(opt => {
-                            nodeRef.data.children.push({ name: opt, children: [] });
-                        });
-
-                        // Expand
-                        if (nodeRef._children) {
-                            nodeRef.children = nodeRef._children;
-                            nodeRef._children = null;
-                        }
-                    }
+                if (options && Array.isArray(options) && options.length > 0) {
+                    console.log('[DEBUG] Successfully parsed', options.length, 'options');
+                    addChildrenToNode(nodeRef, options);
+                    console.log('[DEBUG] Children added successfully');
+                    
+                    // Auto-save after adding AI-generated children
+                    await autoSaveTree();
                 } else {
-                    console.error("Could not parse AI response:", data.response);
+                    console.error('[DEBUG] Failed to parse valid options from response');
                     alert("AI generation failed to produce a valid list.");
                 }
 
             } catch (error) {
-                console.error("AI Generation Error:", error);
+                console.error('[DEBUG] AI Generation Error:', error);
+                console.error('[DEBUG] Error stack:', error.stack);
                 alert("Error generating children: " + error.message);
             } finally {
                 spinner.style.display = 'none';
-                // nodeRef.data.name = originalText;
                 update(root);
+                console.log('[DEBUG] ========== Generate Children Complete ==========');
             }
+        } else {
+            console.warn('[DEBUG] Generate Children clicked but no node selected');
         }
     });
 }
@@ -299,17 +460,6 @@ if (saveBtn) {
         if (!filename) {
             alert("Please enter a filename.");
             return;
-        }
-
-        function cleanData(node) {
-            const clean = { name: node.name };
-            if (node.children && node.children.length > 0) {
-                clean.children = node.children.map(cleanData);
-            }
-            if (node.link) {
-                clean.link = node.link;
-            }
-            return clean;
         }
 
         const treeDataToSave = cleanData(root.data);
@@ -364,28 +514,34 @@ function loadTreeFile(filename, openInNewWindow) {
 
 // Function to update the tree title
 function updateTreeTitle(treeData, filename) {
-    const titleElement = document.getElementById('tree-title');
-    if (titleElement) {
+    const titleTextElement = document.getElementById('title-text');
+    if (titleTextElement) {
         let titleText = '';
         
-        // Use the root node name if available
-        if (treeData && treeData.name) {
-            titleText = treeData.name;
-        } else if (filename) {
-            // Fallback to filename without extension
+        // Prioritize filename when available (more predictable and matches user expectation)
+        if (filename) {
             titleText = filename.replace('.js', '').replace(/[-_]/g, ' ');
             // Capitalize first letter of each word
             titleText = titleText.split(' ').map(word => 
                 word.charAt(0).toUpperCase() + word.slice(1)
             ).join(' ');
+        } else if (treeData && treeData.name) {
+            // Fallback to root node name if no filename
+            titleText = treeData.name;
         }
         
         if (titleText) {
-            titleElement.textContent = titleText;
-            titleElement.style.display = 'block';
+            titleTextElement.textContent = titleText;
+            titleTextElement.style.display = 'block';
         } else {
-            titleElement.style.display = 'none';
+            titleTextElement.style.display = 'none';
         }
+    }
+    
+    // Always show title bar when we have controls
+    const titleElement = document.getElementById('tree-title');
+    if (titleElement) {
+        titleElement.style.display = 'flex';
     }
 }
 
@@ -421,8 +577,12 @@ function loadTreeData(treeData, filename) {
 
     // Assigns parent, children, height, depth
     root = d3.hierarchy(data, function (d) { return d.children; });
-    root.x0 = height / 2;
-    root.y0 = 0;
+    // Calculate height from SVG or use baseHeight
+    const currentHeight = parseFloat(svgElement.attr("height")) || baseHeight;
+    root.x0 = currentHeight / 2;
+    // Position root 5% from left edge of screen
+    const rootOffset = window.innerWidth * 0.05 - margin.left;
+    root.y0 = rootOffset;
 
     // Collapse all nodes initially
     if (root.children) {
@@ -567,13 +727,33 @@ function update(source) {
 
     // Calculate maximum depth first to determine required width
     const nodeSpacing = 180;
+    const verticalSpacing = 100; // Spacing between nodes vertically
+    
+    // Calculate tree structure first to determine dimensions needed
+    treemap.size([baseHeight, baseWidth]);
     const tempTreeData = treemap(root);
     const tempNodes = tempTreeData.descendants();
-    const maxDepth = tempNodes.length > 0 ? d3.max(tempNodes, function(d) { return d.depth; }) : 0;
-    const requiredWidth = Math.max(width, (maxDepth + 1) * nodeSpacing + margin.right);
     
-    // Update treemap size to ensure proper layout calculation
-    treemap.size([height, requiredWidth]);
+    // Calculate required dimensions based on actual tree structure
+    const maxDepth = tempNodes.length > 0 ? d3.max(tempNodes, function(d) { return d.depth; }) : 0;
+    
+    // Calculate required height based on number of nodes at each level
+    let maxNodesAtLevel = 0;
+    const nodesByLevel = {};
+    tempNodes.forEach(function(d) {
+        if (!nodesByLevel[d.depth]) {
+            nodesByLevel[d.depth] = [];
+        }
+        nodesByLevel[d.depth].push(d);
+        maxNodesAtLevel = Math.max(maxNodesAtLevel, nodesByLevel[d.depth].length);
+    });
+    
+    // Calculate dimensions needed - ensure they're large enough
+    const requiredWidth = Math.max(baseWidth, (maxDepth + 1) * nodeSpacing + margin.right + 200);
+    const requiredHeight = Math.max(baseHeight, maxNodesAtLevel * verticalSpacing + margin.top + margin.bottom + 200);
+    
+    // Update treemap size to use calculated dimensions
+    treemap.size([requiredHeight, requiredWidth]);
     
     // Assigns the x and y position for the nodes
     const treeData = treemap(root);
@@ -583,13 +763,35 @@ function update(source) {
         links = treeData.descendants().slice(1);
 
     // Normalize for fixed-depth.
-    nodes.forEach(function (d) { d.y = d.depth * nodeSpacing });
+    // Calculate 5% offset from left edge of screen for root node
+    const rootOffset = window.innerWidth * 0.05 - margin.left;
+    nodes.forEach(function (d) { 
+        d.y = d.depth * nodeSpacing + (d.depth === 0 ? rootOffset : 0);
+    });
     
-    // Update SVG width if needed to accommodate the full tree
-    const currentSvgWidth = parseFloat(svgElement.attr("width"));
-    const newSvgWidth = requiredWidth + margin.left + margin.right;
-    if (currentSvgWidth < newSvgWidth) {
+    // Find actual bounds of the tree after normalization
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    nodes.forEach(function(d) {
+        minX = Math.min(minX, d.x);
+        maxX = Math.max(maxX, d.x);
+        minY = Math.min(minY, d.y);
+        maxY = Math.max(maxY, d.y);
+    });
+    
+    // Add padding around the tree and ensure minimum size
+    const padding = 100;
+    const actualWidth = Math.max(requiredWidth, maxY - minY + margin.left + margin.right + padding * 2, window.innerWidth);
+    const actualHeight = Math.max(requiredHeight, maxX - minX + margin.top + margin.bottom + padding * 2, window.innerHeight);
+    
+    // Update SVG dimensions to accommodate the full tree
+    const currentSvgWidth = parseFloat(svgElement.attr("width")) || 0;
+    const currentSvgHeight = parseFloat(svgElement.attr("height")) || 0;
+    const newSvgWidth = Math.max(currentSvgWidth, actualWidth);
+    const newSvgHeight = Math.max(currentSvgHeight, actualHeight);
+    
+    if (currentSvgWidth < newSvgWidth || currentSvgHeight < newSvgHeight) {
         svgElement.attr("width", newSvgWidth);
+        svgElement.attr("height", newSvgHeight);
     }
 
     // ****************** Nodes section ******************
@@ -740,12 +942,13 @@ function update(source) {
     });
 }
 
-// Handle window resize
+// Handle window resize - update base dimensions but don't constrain tree
 window.addEventListener('resize', function() {
     if (root) {
-        width = window.innerWidth - margin.left - margin.right;
-        height = window.innerHeight - margin.top - margin.bottom;
-        treemap.size([height, width]);
+        // Update base dimensions but keep them large enough for infinite expansion
+        baseWidth = Math.max(window.innerWidth - margin.left - margin.right, 2000);
+        baseHeight = Math.max(window.innerHeight - margin.top - margin.bottom, 2000);
+        // Recalculate tree layout - update function will handle actual sizing
         update(root);
     }
 });
@@ -922,6 +1125,13 @@ async function performSearch(query) {
         searchResults.style.display = 'block';
     } catch (error) {
         console.error('Error performing search:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logBrowserError({
+            error: `Search failed: ${errorMessage}`,
+            source: 'performSearch',
+            message: `Failed to search for query: "${query}" | Error: ${errorMessage}`,
+            stack: error instanceof Error ? error.stack : null
+        });
         searchResults.innerHTML = '<div style="padding: 10px; color: #e74c3c;">Error searching files</div>';
         searchResults.style.display = 'block';
     }
@@ -963,13 +1173,16 @@ window.addEventListener('load', function () {
 
                 // Prioritize filename-derived variable names over hardcoded ones
                 // This ensures that food-shopping.js loads foodShoppingData, not hikingData
+                // Check treeData early since many files use window.treeData
                 const possibleNames = [
                     camelCaseName + 'Data',
                     camelCaseName.charAt(0).toUpperCase() + camelCaseName.slice(1) + 'Data',
                     varName + 'Data',
                     varName.charAt(0).toUpperCase() + varName.slice(1) + 'Data',
-                    // Fallback to common names only if filename-derived names don't match
-                    'treeData', 'hikingData', 'relocationData'
+                    // Check treeData before other fallbacks since many files use window.treeData
+                    'treeData',
+                    // Fallback to other common names only if filename-derived names don't match
+                    'hikingData', 'relocationData'
                 ];
 
                 for (let name of possibleNames) {
@@ -1032,11 +1245,11 @@ window.addEventListener('load', function () {
                 }
 
                 if (loadedData) {
-                    loadTreeData(loadedData);
+                    loadTreeData(loadedData, fileParam);
                 } else {
                     alert('Could not find tree data in ' + fileParam);
                     if (typeof treeData !== 'undefined') {
-                        loadTreeData(treeData);
+                        loadTreeData(treeData, fileParam);
                     }
                 }
             }, 100);
@@ -1053,3 +1266,105 @@ window.addEventListener('load', function () {
         }, 100);
     }
 });
+
+// ==================== Browser Error Tracking ====================
+// Store original console methods BEFORE overriding them
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
+// Function to send browser errors to server for logging
+function logBrowserError(errorInfo) {
+    try {
+        const errorData = {
+            error: errorInfo.message || errorInfo.error || String(errorInfo),
+            source: errorInfo.source || errorInfo.filename || 'unknown',
+            lineno: errorInfo.lineno || errorInfo.line || null,
+            colno: errorInfo.colno || errorInfo.column || null,
+            stack: errorInfo.stack || null,
+            url: window.location.href,
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString()
+        };
+
+        // Send to server (fire and forget - don't wait for response)
+        fetch('/api/log-error', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(errorData)
+        }).catch(err => {
+            // Silently fail if server is not available - use original console.error to avoid recursion
+            originalConsoleError('Failed to log error to server:', err);
+        });
+    } catch (err) {
+        // Silently fail if error logging itself fails - use original console.error to avoid recursion
+        originalConsoleError('Error in logBrowserError:', err);
+    }
+}
+
+// Override console.error to also log to server
+console.error = function(...args) {
+    originalConsoleError.apply(console, args);
+    
+    // Extract error information
+    const errorMessage = args.map(arg => {
+        if (arg instanceof Error) {
+            return arg.message + (arg.stack ? '\n' + arg.stack : '');
+        }
+        return String(arg);
+    }).join(' ');
+    
+    logBrowserError({
+        error: errorMessage,
+        source: 'console.error',
+        stack: args.find(arg => arg instanceof Error)?.stack || null
+    });
+};
+
+// Override console.warn to also log to server
+console.warn = function(...args) {
+    originalConsoleWarn.apply(console, args);
+    
+    const warningMessage = args.map(arg => String(arg)).join(' ');
+    
+    logBrowserError({
+        error: `Warning: ${warningMessage}`,
+        source: 'console.warn'
+    });
+};
+
+// Global error handler for uncaught errors
+window.addEventListener('error', function(event) {
+    logBrowserError({
+        message: event.message,
+        source: event.filename || event.source || 'unknown',
+        lineno: event.lineno,
+        colno: event.colno,
+        error: event.error,
+        stack: event.error?.stack || null
+    });
+}, true);
+
+// Global handler for unhandled promise rejections
+window.addEventListener('unhandledrejection', function(event) {
+    logBrowserError({
+        error: `Unhandled Promise Rejection: ${event.reason}`,
+        source: 'unhandledrejection',
+        stack: event.reason?.stack || String(event.reason)
+    });
+});
+
+// Also catch errors via window.onerror (older method, for compatibility)
+window.onerror = function(message, source, lineno, colno, error) {
+    logBrowserError({
+        message: message,
+        source: source,
+        lineno: lineno,
+        colno: colno,
+        error: error,
+        stack: error?.stack || null
+    });
+    // Return false to allow default error handling
+    return false;
+};

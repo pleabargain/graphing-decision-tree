@@ -19,8 +19,6 @@ app.get('/', (req, res) => {
     res.redirect('/decision_tree.html');
 });
 
-app.use(express.static(__dirname)); // Serve static files from current directory
-
 // Logging function
 function log(message) {
     const timestamp = new Date().toISOString();
@@ -70,8 +68,11 @@ app.get('/api/search-files', (req, res) => {
             file !== 'script.js');
 
         if (!searchTerm) {
+            log(`Search files: listing all files (${jsFiles.length} files)`);
             return res.json({ files: jsFiles });
         }
+
+        log(`Search files: query="${searchQuery}", term="${searchTerm}"`);
 
         // Read file contents and search
         const results = [];
@@ -114,53 +115,102 @@ app.get('/api/search-files', (req, res) => {
                 }
             } catch (err) {
                 console.error(`Error reading file ${filename}:`, err);
+                log(`Error reading file ${filename} during search: ${err.message}`);
             }
         });
+
+        if (results.length === 0) {
+            log(`Search files: no results found for query="${searchQuery}"`);
+        } else {
+            log(`Search files: found ${results.length} result(s) for query="${searchQuery}"`);
+        }
 
         res.json({ files: results });
     } catch (error) {
         console.error('Error searching files:', error);
-        log(`Error searching files: ${error.message}`);
+        log(`Error searching files: ${error.message} | Query: "${searchQuery}"`);
         res.status(500).json({ error: 'Failed to search files' });
     }
+});
+
+// Endpoint to log browser errors
+app.post('/api/log-error', (req, res) => {
+    const { error, source, lineno, colno, stack, url, userAgent, timestamp } = req.body;
+    
+    const errorMessage = `Browser Error: ${error || 'Unknown error'}`;
+    const errorDetails = [
+        `Source: ${source || 'unknown'}`,
+        `Line: ${lineno || 'unknown'}`,
+        `Column: ${colno || 'unknown'}`,
+        `URL: ${url || 'unknown'}`,
+        `User Agent: ${userAgent || 'unknown'}`,
+        stack ? `Stack: ${stack}` : ''
+    ].filter(Boolean).join(' | ');
+    
+    log(`${errorMessage} | ${errorDetails}`);
+    res.json({ success: true });
 });
 
 // Endpoint to proxy requests to Ollama
 app.post('/api/generate', async (req, res) => {
     const { prompt, model = 'gemma3:4b' } = req.body;
 
+    console.log('[SERVER DEBUG] ========== Generate Children Request Received ==========');
+    console.log('[SERVER DEBUG] Request body:', JSON.stringify(req.body, null, 2));
+    console.log('[SERVER DEBUG] Prompt received:', prompt);
+    console.log('[SERVER DEBUG] Model:', model);
+
     if (!prompt) {
+        console.error('[SERVER DEBUG] Error: Prompt is required');
         return res.status(400).json({ error: 'Prompt is required' });
     }
 
     log(`Generating content with model: ${model}`);
+    log(`Prompt: ${prompt.substring(0, 100)}...`); // Log first 100 chars
 
     try {
+        const ollamaRequestBody = {
+            model: model,
+            prompt: prompt,
+            stream: false // Disable streaming for simpler handling
+        };
+        
+        console.log('[SERVER DEBUG] Sending request to Ollama:', JSON.stringify(ollamaRequestBody, null, 2));
+        console.log('[SERVER DEBUG] Ollama URL: http://localhost:11434/api/generate');
+        
         // Forward request to Ollama
         const response = await fetch('http://localhost:11434/api/generate', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                model: model,
-                prompt: prompt,
-                stream: false // Disable streaming for simpler handling
-            }),
+            body: JSON.stringify(ollamaRequestBody),
         });
 
+        console.log('[SERVER DEBUG] Ollama response status:', response.status, response.statusText);
+
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[SERVER DEBUG] Ollama API error response:', errorText);
             throw new Error(`Ollama API error: ${response.statusText}`);
         }
 
         const data = await response.json();
+        console.log('[SERVER DEBUG] Ollama response data:', JSON.stringify(data, null, 2));
+        console.log('[SERVER DEBUG] Response field:', data.response);
+        console.log('[SERVER DEBUG] ========== Generate Children Request Complete ==========');
+        
         res.json(data);
     } catch (error) {
-        console.error('Error communicating with Ollama:', error);
+        console.error('[SERVER DEBUG] Error communicating with Ollama:', error);
+        console.error('[SERVER DEBUG] Error stack:', error.stack);
         log(`Error communicating with Ollama: ${error.message}`);
         res.status(500).json({ error: 'Failed to communicate with Ollama', details: error.message });
     }
 });
+
+// Serve static files from current directory (must be AFTER all API routes)
+app.use(express.static(__dirname));
 
 if (require.main === module) {
     app.listen(PORT, () => {

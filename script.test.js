@@ -153,3 +153,107 @@ describe('Generate Children (AI) Bug Fix', () => {
     });
 });
 
+describe('Tree Title Functionality', () => {
+    let titleElement;
+    let updateTreeTitle;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        
+        // Mock title element
+        titleElement = {
+            textContent: '',
+            style: { display: 'none' }
+        };
+        
+        global.document.getElementById.mockImplementation((id) => {
+            if (id === 'tree-title') {
+                return titleElement;
+            }
+            return null;
+        });
+
+        // Extract updateTreeTitle function logic for testing
+        // This mimics the function from script.js
+        updateTreeTitle = function(treeData, filename) {
+            const titleElement = document.getElementById('tree-title');
+            if (titleElement) {
+                let titleText = '';
+                
+                // Prioritize filename when available (more predictable and matches user expectation)
+                if (filename) {
+                    titleText = filename.replace('.js', '').replace(/[-_]/g, ' ');
+                    // Capitalize first letter of each word
+                    titleText = titleText.split(' ').map(word => 
+                        word.charAt(0).toUpperCase() + word.slice(1)
+                    ).join(' ');
+                } else if (treeData && treeData.name) {
+                    // Fallback to root node name if no filename
+                    titleText = treeData.name;
+                }
+                
+                if (titleText) {
+                    titleElement.textContent = titleText;
+                    titleElement.style.display = 'block';
+                } else {
+                    titleElement.style.display = 'none';
+                }
+            }
+        };
+    });
+
+    test('should prioritize filename over treeData.name when filename is provided', () => {
+        const treeData = { name: 'Buy a New Phone?' };
+        const filename = 'buy-phone.js';
+        
+        updateTreeTitle(treeData, filename);
+        
+        expect(titleElement.textContent).toBe('Buy Phone');
+        expect(titleElement.style.display).toBe('block');
+    });
+
+    test('should use treeData.name when filename is not provided', () => {
+        const treeData = { name: 'Go Hiking?' };
+        const filename = null;
+        
+        updateTreeTitle(treeData, filename);
+        
+        expect(titleElement.textContent).toBe('Go Hiking?');
+        expect(titleElement.style.display).toBe('block');
+    });
+
+    test('should format filename correctly (remove .js, replace dashes/underscores with spaces, capitalize)', () => {
+        const treeData = { name: 'Some Other Title' };
+        
+        updateTreeTitle(treeData, 'buy-phone.js');
+        expect(titleElement.textContent).toBe('Buy Phone');
+        
+        updateTreeTitle(treeData, 'food_shopping.js');
+        expect(titleElement.textContent).toBe('Food Shopping');
+        
+        updateTreeTitle(treeData, 'new-location.js');
+        expect(titleElement.textContent).toBe('New Location');
+    });
+
+    test('should hide title element when neither filename nor treeData.name is available', () => {
+        updateTreeTitle(null, null);
+        
+        expect(titleElement.style.display).toBe('none');
+    });
+
+    test('should handle empty treeData object', () => {
+        updateTreeTitle({}, 'test-file.js');
+        
+        expect(titleElement.textContent).toBe('Test File');
+        expect(titleElement.style.display).toBe('block');
+    });
+
+    test('should handle filename without extension', () => {
+        const treeData = { name: 'Some Title' };
+        
+        updateTreeTitle(treeData, 'buy-phone');
+        
+        expect(titleElement.textContent).toBe('Buy Phone');
+    });
+});
+
